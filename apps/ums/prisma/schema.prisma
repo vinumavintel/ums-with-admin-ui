@@ -1,0 +1,60 @@
+// apps/ums/prisma/schema.prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum AppRole {
+  SUPER_ADMIN
+  ADMIN
+  READ_WRITE
+  READ_ONLY
+}
+
+model Application {
+  id               String  @id @default(cuid())
+  name             String  @unique
+  description      String?
+  keycloakClientId String  @unique
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  users            UserAppRole[]
+}
+
+model User {
+  id              String   @id @default(cuid())
+  keycloakUserId  String   @unique
+  email           String   @unique
+  firstName       String?
+  lastName        String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  apps            UserAppRole[]
+  auditLogs       AuditLog[] @relation("user_actions")
+}
+
+model UserAppRole {
+  id            String    @id @default(cuid())
+  user          User      @relation(fields: [userId], references: [id])
+  userId        String
+  application   Application @relation(fields: [applicationId], references: [id])
+  applicationId String
+  role          AppRole
+  grantedBy     String?
+  createdAt     DateTime  @default(now())
+
+  @@unique([userId, applicationId, role])
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  actorUser    User?    @relation("user_actions", fields: [actorUserId], references: [id])
+  actorUserId  String?
+  targetUserId String?
+  action       String
+  meta         Json?
+  createdAt    DateTime @default(now())
+}
