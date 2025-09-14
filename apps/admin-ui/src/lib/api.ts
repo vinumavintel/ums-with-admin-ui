@@ -1,6 +1,6 @@
 "use client";
 import axios, { AxiosRequestConfig, AxiosResponse } from 'axios';
-import { getToken, keycloak, waitForToken } from './keycloak';
+import { getToken, keycloak, waitForToken } from './keycloak-client';
 import { Env } from '@/env';
 
 // Basic API URL validation - runs once at module load

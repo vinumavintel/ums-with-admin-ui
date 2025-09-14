@@ -3,9 +3,6 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import Keycloak, { KeycloakInitOptions } from 'keycloak-js';
 import { Env } from '@/env';
 
-// Ensure a single Keycloak instance across any duplicate module graphs (Turbopack/Next).
-// We stash it on globalThis with a symbol key.
-const KC_SINGLETON = Symbol.for('@@mavintel/keycloak');
 declare global {
   // eslint-disable-next-line no-var
   var __kcSingleton: Keycloak | undefined;
@@ -17,7 +14,6 @@ export const keycloak: Keycloak = existing || (globalThis.__kcSingleton = new Ke
   clientId: Env.KC_CLIENT_ID!,
 }));
 
-// after creating keycloak instance (dev only)
 if (process.env.NODE_ENV === 'development') {
   console.log('[auth] ENV', {
     KC_BASE_URL: Env.KC_BASE_URL,
@@ -28,7 +24,6 @@ if (process.env.NODE_ENV === 'development') {
 
 if (process.env.NODE_ENV === 'development') {
   (keycloak as any)._instanceDebugId = (keycloak as any)._instanceDebugId || Math.random().toString(36).slice(2,8);
-  console.log('[auth] Keycloak singleton id:', (keycloak as any)._instanceDebugId);
 }
 
 let initPromise: Promise<boolean> | null = null;
@@ -68,10 +63,8 @@ function decodeJwt(token: string | undefined | null): any | null {
 
 export async function initAuth(): Promise<boolean> {
   if (initPromise) {
-    console.log('[auth] initAuth already in progress, returning existing promise');
     return initPromise;
   }
-  console.log('[auth] Starting Keycloak initialization...');
   const options: KeycloakInitOptions = {
     onLoad: 'login-required',
     pkceMethod: 'S256',
@@ -81,30 +74,23 @@ export async function initAuth(): Promise<boolean> {
   initPromise = keycloak
     .init(options)
   .then((authenticated) => {
-      console.log('[auth] Keycloak init successful, authenticated:', authenticated);
       if (authenticated) {
-        console.log('[auth] Setting up token refresh...');
         if (refreshIntervalHandle) clearInterval(refreshIntervalHandle);
         refreshIntervalHandle = setInterval(async () => {
           try {
             const refreshed = await keycloak.updateToken(30);
             if (refreshed) {
-              console.log('[auth] Token refreshed');
             }
           } catch (e) {
-            console.error('[auth] Token refresh failed:', e);
             try { keycloak.login(); } catch (_) {}
           }
         }, 20_000);
         keycloak.onTokenExpired = () => {
-          console.log('[auth] Token expired, refreshing...');
           keycloak.updateToken(30).catch(() => {
-            console.error('[auth] Token refresh on expiry failed');
             try { keycloak.login(); } catch (_) {}
           });
         };
       }
-      // Fire a custom event so late subscribers (e.g. API layer) can react once we really have a token
       if (authenticated && typeof window !== 'undefined') {
         setTimeout(() => {
           try { window.dispatchEvent(new Event('kc-auth-ready')); } catch (_) {}
@@ -114,19 +100,18 @@ export async function initAuth(): Promise<boolean> {
       return authenticated;
     })
     .catch((err) => {
-      console.error('[auth] Keycloak init failed:', err);
       return false;
     });
   return initPromise;
 }
 
 export function getToken(): string | null {
-  if (typeof window === 'undefined') return null; // avoid SSR noise
+  if (typeof window === 'undefined') return null;
   return keycloak.token ?? null;
 }
 
 export function logout(): void {
-  try { keycloak.logout(); } catch (e) { console.error('Logout error', e); }
+  try { keycloak.logout(); } catch (e) { }
 }
 
 interface AuthContextValue {
@@ -145,20 +130,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const mounted = useRef(false);
   useEffect(() => {
     let active = true;
-    console.log('[auth] AuthProvider useEffect starting...');
     (async () => {
       try {
-        console.log('[auth] About to call initAuth...');
         const authResult = await initAuth();
-        console.log('[auth] initAuth completed with result:', authResult);
         if (!active) return;
         const t = getToken();
-        console.log('[auth] Setting state - token present:', !!t, 'authResult:', authResult);
         setToken(t);
         setIsAuthenticated(authResult);
         setReady(true);
         notifyTokenWaiters(t);
-        // Attach Keycloak lifecycle event handlers (only once after init)
         keycloak.onAuthSuccess = () => {
           const nt = getToken();
           setToken(nt);
@@ -174,15 +154,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setIsAuthenticated(false);
         };
       } catch (error) {
-        console.error('[auth] AuthProvider initialization failed:', error);
-        setReady(true); // Set ready even on error to prevent infinite loading
+        setReady(true);
       }
     })();
     mounted.current = true;
     return () => { active = false; };
   }, []);
   
-  console.log('[auth] AuthProvider render - state:', { ready, isAuthenticated, hasToken: !!token });
   const profile = decodeJwt(token);
   const value: AuthContextValue = { isAuthenticated, token, profile, logout, ready };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
