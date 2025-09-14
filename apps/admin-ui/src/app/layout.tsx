@@ -33,7 +33,9 @@ export default function RootLayout({
           <div className="flex h-screen w-screen overflow-hidden">
             {/* Sidebar */}
             <aside className="w-56 shrink-0 border-r bg-white/70 dark:bg-neutral-900/70 backdrop-blur-sm border-neutral-200 dark:border-neutral-800 flex flex-col">
-              <div className="px-4 py-4 border-b border-neutral-200 dark:border-neutral-800 font-semibold tracking-tight text-sm">User Console</div>
+              <div className="h-14 flex items-center px-4 border-b border-neutral-200 dark:border-neutral-800 font-semibold tracking-tight text-sm">
+                User Console
+              </div>
               <nav className="flex-1 overflow-y-auto py-4">
                 <ul className="space-y-1 px-3 text-sm">
                   <li>
