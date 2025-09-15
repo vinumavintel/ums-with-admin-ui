@@ -21,21 +21,28 @@ export class AppsService {
 		const existing = await this.prisma.application.findUnique({ where: { name: dto.name } });
 		if (existing) throw new ConflictException('Application name already exists');
 
-		let kcClient: any;
+		let kcClient: { id: string; clientId: string };
 		try {
 			kcClient = await this.keycloak.createClientWithRoles(clientId);
 		} catch (e: any) {
-			if ((e as any).code === 'CONFLICT') throw new ConflictException('Keycloak client already exists');
+			const status = e?.response?.status;
+			if (status === 409) {
+			// Already exists in KC → continue by fetching
+			const found = await this.keycloak.findClientByClientId(clientId);
+			if (!found?.id) throw new ConflictException('Keycloak client already exists');
+			kcClient = { id: found.id!, clientId };
+			} else {
 			throw e;
+			}
 		}
 
 		try {
 			const app = await this.prisma.application.create({
-				data: {
-					name: dto.name,
-					description: dto.description,
-					keycloakClientId: kcClient.clientId || clientId,
-				},
+			data: {
+				name: dto.name,
+				description: dto.description,
+				keycloakClientId: kcClient.clientId,
+			},
 			});
 			return app as AppResponse;
 		} catch (e: any) {
@@ -43,6 +50,7 @@ export class AppsService {
 			throw e;
 		}
 	}
+
 
 	async findAll(page = 1, limit = 20, q?: string): Promise<PaginatedResult<AppResponse>> {
 		const skip = (page - 1) * limit;

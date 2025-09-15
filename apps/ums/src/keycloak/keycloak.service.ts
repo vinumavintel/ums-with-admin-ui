@@ -26,32 +26,50 @@ export class KeycloakService {
       });
     } catch (e: any) {
       this.logger.error('Keycloak auth failed', e?.response?.data || e?.message);
-      throw e; // will be mapped by wrapKc caller
+      throw e;
     }
   }
 
   // ---- Public API ----
   async createClientWithRoles(appClientId: string) {
     await this.auth();
-    return wrapKc(async () => {
-      const client = await this.kc.clients.create({
-        clientId: appClientId,
-        name: appClientId,
-        publicClient: false,
-        serviceAccountsEnabled: true,
-        standardFlowEnabled: true,
-        directAccessGrantsEnabled: true,
-      });
-      const roleNames = ['super-admin', 'admin', 'read-write', 'read-only'];
-      for (const name of roleNames) {
-        try { await this.kc.clients.createRole({ id: client.id!, name }); }
-        catch (roleErr: any) {
-          if (roleErr?.response?.status === 409) this.logger.warn(`Role ${name} already exists on client ${appClientId}`);
-          else throw roleErr;
+    
+    // 1) Try create; if 409, fetch existing
+    let client = await this.findClientByClientId(appClientId);
+    if (!client) {
+      try {
+        await this.kc.clients.create({
+          clientId: appClientId,
+          name: appClientId,
+          publicClient: false,
+          serviceAccountsEnabled: true,
+          standardFlowEnabled: true,
+          directAccessGrantsEnabled: true,
+        });
+        client = await this.findClientByClientId(appClientId);
+      } catch (e: any) {
+        const status = e?.response?.status;
+        if (status !== 409) {
+          console.error('[KC create client] failed', status, e?.response?.data || e?.message);
+          throw e;
         }
+        client = await this.findClientByClientId(appClientId);
       }
-      return client;
-    }, `Failed creating client ${appClientId}`);
+    }
+    if (!client?.id) throw new Error('Keycloak client not found after create');
+
+    // 2) Ensure roles exist; ignore 409 if already there
+    for (const name of ['super-admin','admin','read-write','read-only']) {
+      try {
+        await this.kc.clients.createRole({ id: client.id!, name });
+      } catch (e: any) {
+        const status = e?.response?.status;
+        if (status !== 409) throw e;
+      }
+    }
+
+    return { id: client.id!, clientId: appClientId };
+
   }
 
   async findClientByClientId(clientId: string) {

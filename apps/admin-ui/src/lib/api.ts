@@ -15,8 +15,6 @@ export const api = axios.create({
   baseURL: Env.UMS_API,
 });
 
-// Removed manual queue; instead we await waitForToken when a request needs auth and token not yet there.
-
 // Request interceptor
 api.interceptors.request.use(async (config) => {
   const token = getToken();

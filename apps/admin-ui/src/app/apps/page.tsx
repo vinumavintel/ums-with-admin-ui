@@ -65,17 +65,45 @@ export default function AppsPage() {
   }, [ready, isAuthenticated]);
 
   const createMutation = useMutation({
-    mutationFn: () => post<AppItem, { name: string; description?: string }>("/v1/apps", { name, description }),
+    mutationFn: (vars: { name: string; description?: string }) => post<AppItem, { name: string; description?: string }>("/v1/apps", vars),
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: ['apps'] });
+      const previous = queryClient.getQueryData<AppsResponse>(['apps']);
+      const optimistic: AppItem = {
+        id: 'temp-' + Date.now(),
+        name: vars.name,
+        description: vars.description,
+        keycloakClientId: 'pending',
+        usersCount: 0,
+        createdAt: new Date().toISOString(),
+      };
+      if (previous) {
+        queryClient.setQueryData<AppsResponse>(['apps'], {
+          ...previous,
+          items: [optimistic, ...previous.items],
+          total: (previous.total ?? previous.items.length) + 1,
+        });
+      } else {
+        queryClient.setQueryData<AppsResponse>(['apps'], { items: [optimistic], total: 1 });
+      }
+      return { previous };
+    },
     onSuccess: () => {
       notify({ title: 'App created' });
       setOpen(false);
       setName("");
       setDescription("");
-      // Temporarily disabled to debug infinite queries
-      // queryClient.invalidateQueries({ queryKey: ['apps'] });
     },
-    onError: (err: any) => {
+    onError: (err: any, _vars, ctx) => {
+      if (ctx?.previous) {
+        queryClient.setQueryData(['apps'], ctx.previous);
+      } else {
+        queryClient.removeQueries({ queryKey: ['apps'] });
+      }
       notify({ title: 'Create failed', description: err?.message || 'Unknown error', variant: 'error' });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['apps'] });
     }
   });
 
@@ -126,7 +154,15 @@ export default function AppsPage() {
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => !createMutation.isPending && setOpen(false)} />
           <div className="relative w-full max-w-md rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-6 shadow-lg space-y-4">
             <h2 className="text-lg font-semibold">Create Application</h2>
-            <div className="space-y-3">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const trimmed = name.trim();
+                if (!trimmed) return;
+                createMutation.mutate({ name: trimmed, description: description.trim() || undefined });
+              }}
+              className="space-y-3"
+            >
               <div className="space-y-1">
                 <label className="text-xs font-medium uppercase tracking-wide text-neutral-500">Name</label>
                 <input
@@ -135,31 +171,35 @@ export default function AppsPage() {
                   onChange={(e) => setName(e.target.value)}
                   placeholder="e.g. Billing Service"
                   disabled={createMutation.isPending}
+                  maxLength={80}
+                  required
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium uppercase tracking-wide text-neutral-500">Description</label>
+                <label className="text-xs font-medium uppercase tracking-wide text-neutral-500">Description <span className="text-neutral-400">(optional)</span></label>
                 <textarea
                   className="w-full rounded border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-600 resize-none h-24"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Short description"
                   disabled={createMutation.isPending}
+                  maxLength={300}
                 />
               </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                onClick={() => setOpen(false)}
-                disabled={createMutation.isPending}
-                className="px-3 py-2 text-xs rounded border border-neutral-300 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50"
-              >Cancel</button>
-              <button
-                onClick={() => createMutation.mutate()}
-                disabled={createMutation.isPending || !name}
-                className="px-3 py-2 text-xs rounded bg-neutral-900 text-white dark:bg-neutral-200 dark:text-neutral-900 font-medium hover:opacity-90 disabled:opacity-50"
-              >{createMutation.isPending ? 'Creating…' : 'Create'}</button>
-            </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  disabled={createMutation.isPending}
+                  className="px-3 py-2 text-xs rounded border border-neutral-300 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50"
+                >Cancel</button>
+                <button
+                  type="submit"
+                  disabled={createMutation.isPending || !name.trim()}
+                  className="px-3 py-2 text-xs rounded bg-neutral-900 text-white dark:bg-neutral-200 dark:text-neutral-900 font-medium hover:opacity-90 disabled:opacity-50"
+                >{createMutation.isPending ? 'Creating…' : 'Create'}</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
